@@ -1,7 +1,16 @@
-langchain-ollama==0.2.2
-langgraph==0.2.20
-chromadb==0.5.5
-pypdf==4.3.1
 fastapi==0.115.0
-uvicorn==0.30.6
+uvicorn[standard]==0.30.6
 python-multipart==0.0.9
+python-dotenv==1.0.1
+requests==2.32.3
+
+# LangChain core + community
+langchain
+langchain-community
+
+# Qdrant vector database
+langchain-qdrant
+qdrant-client==1.12.1
+
+# PDFs / document loaders
+pypdf==4.3.1

@@ -1,0 +1,13 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY test_qdrant_retrieval.py /app/test_qdrant_retrieval.py
+
+RUN pip install --no-cache-dir \
+    "qdrant-client==1.7.3" \
+    "langchain-core==0.3.83" \
+    langchain-ollama
+
+CMD ["python", "test_qdrant_retrieval.py"]
+

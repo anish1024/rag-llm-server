@@ -1,0 +1,37 @@
+# Dockerfile for rag-agents-pi5 backend (FastAPI + Qdrant + Ollama)
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# System deps (optional but useful)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy app code
+COPY agent_api.py /app/agent_api.py
+# If you have more modules, copy them too, e.g.:
+# COPY . /app
+
+# Install Python dependencies
+RUN pip install --no-cache-dir \
+    fastapi \
+    "uvicorn[standard]" \
+    "langchain==0.3.27" \
+    "langchain-core==0.3.83" \
+    "langchain-community==0.3.27" \
+    langchain-text-splitters \
+    langchain-ollama \
+    "qdrant-client==1.7.3" \
+    python-dotenv \
+    pydantic \
+    requests \
+    python-multipart \
+    pypdf
+
+# Expose FastAPI port
+EXPOSE 8000
+
+# Start uvicorn with your FastAPI app
+# Change "agent_api:app" if your file/module name or app variable differ
+CMD ["uvicorn", "agent_api:app", "--host", "0.0.0.0", "--port", "8000"]
