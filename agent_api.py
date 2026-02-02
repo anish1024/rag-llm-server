@@ -1,6 +1,7 @@
 import requests
 import os
 import io
+import uuid
 from typing import List
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException
@@ -21,7 +22,7 @@ LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5:5b-instruct-q4_K_M")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
-QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "rag_docs")
+QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "rag_docs") # test_rag_docs
 
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "800"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "200"))
@@ -143,12 +144,13 @@ async def upload_pdf(file: UploadFile = File(...)):
 
     points = [
        qm.PointStruct(
-            id=f"{file.filename}-{i}",
+            #id=f"{file.filename}-{i}",
+	    id=str(uuid.uuid4()),
             vector=vectors[i],
             payload={
            	 "text": chunks[i].page_content,
            	 "source": file.filename,
-           	 "page": chunks[i].metadata.get("page"),
+           	 "doc_type": 'pdf',
         	},
     	)
     	for i in range(len(chunks))
@@ -174,6 +176,57 @@ async def upload_pdf(file: UploadFile = File(...)):
     #	payloads=payloads,
     #)
     #print("Upserting batch:", type(batch), "len:",  len(ids))
+
+    client.upsert(
+        collection_name=QDRANT_COLLECTION,
+        wait=True,
+        points=points,
+    )
+
+    return UploadResponse(filename=file.filename, chunks=len(points))
+
+@app.post("/upload_test", response_model=UploadResponse)
+async def upload_pdf_test(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+
+    # Save to disk
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    pdf_file = UPLOAD_DIR / file.filename
+    with pdf_file.open("wb") as f:
+        f.write(await file.read())
+
+    # Load PDF into Documents (in-memory)
+    loader = PyPDFLoader(pdf_file)  # langchain-community loader supports file-like
+    docs = loader.load()
+
+    # Chunk
+    chunks = chunk_documents(docs)
+    if not chunks:
+        raise HTTPException(status_code=400, detail="No text chunks extracted")
+
+    # Embeddings + Qdrant
+    embeddings = get_embeddings()
+    vectors = embeddings.embed_documents([c.page_content for c in chunks])
+    print(f"✅ Embedded {len(vectors)} documents")
+    
+    client = get_qdrant_client()
+    dim = len(vectors[0])
+    ensure_collection(client, dim)
+
+    points = [
+       qm.PointStruct(
+            id=str(uuid.uuid4()),
+            vector=vectors[i],
+            payload={
+           	 "text": chunks[i].page_content,
+           	 "source": file.filename,
+           	 "doc_type": 'ebook',
+        	},
+    	)
+    	for i in range(len(chunks))
+    ]
+    print("Upserting points:", type(points), "len:",  len(points))
 
     client.upsert(
         collection_name=QDRANT_COLLECTION,
