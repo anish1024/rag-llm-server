@@ -7,6 +7,8 @@ requests==2.32.3
 # LangChain core + community
 langchain
 langchain-community
+langchain-ollama
+langchain-text-splitters
 
 # Qdrant vector database
 langchain-qdrant

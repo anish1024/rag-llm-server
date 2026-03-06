@@ -2,7 +2,7 @@ import requests
 import os
 import io
 import uuid
-from typing import List
+from typing import List, Optional
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from pydantic import BaseModel
@@ -26,6 +26,9 @@ QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "rag_docs") # test_rag_docs
 
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "800"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "200"))
+
+WIKIJS_URL = os.getenv("WIKIJS_URL", "")          # e.g. http://wiki.local
+WIKIJS_API_KEY = os.getenv("WIKIJS_API_KEY", "")
 
 ###################################################################
 # ...Helper Functions....					  #
@@ -65,12 +68,98 @@ def ensure_collection(client: QdrantClient, dim: int) -> None:
     )
 
 
+def get_or_create_collection(client: QdrantClient, dim: int) -> None:
+    """Create collection only if it does not already exist."""
+    existing = {c.name for c in client.get_collections().collections}
+    if QDRANT_COLLECTION not in existing:
+        client.create_collection(
+            collection_name=QDRANT_COLLECTION,
+            vectors_config=qm.VectorParams(
+                size=dim,
+                distance=qm.Distance.COSINE,
+            ),
+        )
+
+
 def chunk_documents(docs: List[Document]) -> List[Document]:
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
     )
     return splitter.split_documents(docs)
+
+
+###################################################################
+# ...Wiki.js helpers...                                           #
+###################################################################
+
+def _wikijs_graphql(query: str, variables: dict = None) -> dict:
+    """Execute a GraphQL query against Wiki.js."""
+    if not WIKIJS_URL:
+        raise HTTPException(status_code=500, detail="WIKIJS_URL is not configured")
+    if not WIKIJS_API_KEY:
+        raise HTTPException(status_code=500, detail="WIKIJS_API_KEY is not configured")
+
+    headers = {
+        "Authorization": f"Bearer {WIKIJS_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {"query": query}
+    if variables:
+        payload["variables"] = variables
+
+    try:
+        r = requests.post(
+            f"{WIKIJS_URL}/graphql",
+            json=payload,
+            headers=headers,
+            timeout=30,
+        )
+        r.raise_for_status()
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"Wiki.js request failed: {e}")
+
+    data = r.json()
+    if "errors" in data:
+        raise HTTPException(status_code=502, detail=f"Wiki.js GraphQL error: {data['errors']}")
+    return data["data"]
+
+
+_LIST_PAGES_QUERY = """
+query {
+  pages {
+    list {
+      id
+      path
+      title
+    }
+  }
+}
+"""
+
+_GET_PAGE_QUERY = """
+query ($id: Int!) {
+  pages {
+    single(id: $id) {
+      id
+      path
+      title
+      content
+      updatedAt
+    }
+  }
+}
+"""
+
+
+def fetch_wiki_page_list() -> List[dict]:
+    data = _wikijs_graphql(_LIST_PAGES_QUERY)
+    return data["pages"]["list"]
+
+
+def fetch_wiki_page_content(page_id: int) -> dict:
+    data = _wikijs_graphql(_GET_PAGE_QUERY, {"id": page_id})
+    return data["pages"]["single"]
 
 
 ###################################################################
@@ -284,6 +373,97 @@ async def rag_query(req: QueryRequest):
     answer_text = resp.content if hasattr(resp, "content") else str(resp)
 
     return QueryResponse(answer=answer_text)
+
+#----------- Wiki.js ingest --------------------------------------------------
+
+class WikiIngestRequest(BaseModel):
+    path_prefix: Optional[str] = None   # e.g. "/iot" to limit scope
+    page_ids: Optional[List[int]] = None  # explicit list of page IDs
+
+
+class WikiIngestResponse(BaseModel):
+    pages: int
+    chunks: int
+
+
+@app.post("/ingest/wiki", response_model=WikiIngestResponse)
+async def ingest_wiki(req: WikiIngestRequest = None):
+    if req is None:
+        req = WikiIngestRequest()
+
+    # Resolve which pages to ingest
+    if req.page_ids:
+        page_list = [{"id": pid} for pid in req.page_ids]
+    else:
+        page_list = fetch_wiki_page_list()
+        if req.path_prefix:
+            prefix = req.path_prefix.lstrip("/")
+            page_list = [p for p in page_list if p["path"].lstrip("/").startswith(prefix)]
+
+    if not page_list:
+        raise HTTPException(status_code=404, detail="No Wiki.js pages matched the filter")
+
+    embeddings = get_embeddings()
+    client = get_qdrant_client()
+
+    total_chunks = 0
+    ingested_pages = 0
+    collection_ready = False
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+    )
+
+    for page_meta in page_list:
+        try:
+            page = fetch_wiki_page_content(int(page_meta["id"]))
+        except HTTPException:
+            continue  # skip pages we can't fetch
+
+        content = (page.get("content") or "").strip()
+        if not content:
+            continue
+
+        chunks = splitter.split_text(content)
+        if not chunks:
+            continue
+
+        vectors = embeddings.embed_documents(chunks)
+
+        if not collection_ready:
+            get_or_create_collection(client, len(vectors[0]))
+            collection_ready = True
+
+        points = [
+            qm.PointStruct(
+                id=str(uuid.uuid4()),
+                vector=vectors[i],
+                payload={
+                    "text": chunks[i],
+                    "source": page.get("path", ""),
+                    "title": page.get("title", ""),
+                    "doc_type": "wiki",
+                    "updated_at": page.get("updatedAt", ""),
+                },
+            )
+            for i in range(len(chunks))
+        ]
+
+        client.upsert(
+            collection_name=QDRANT_COLLECTION,
+            wait=True,
+            points=points,
+        )
+
+        total_chunks += len(points)
+        ingested_pages += 1
+
+    if ingested_pages == 0:
+        raise HTTPException(status_code=422, detail="Pages found but no content could be extracted")
+
+    return WikiIngestResponse(pages=ingested_pages, chunks=total_chunks)
+
 
 #--------- Entry Point ------------------------------------------------------
 if __name__ == "__main__":
