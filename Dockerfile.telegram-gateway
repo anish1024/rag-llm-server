@@ -1,0 +1,15 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# System deps (optional but useful)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY telegram-gateway.py /app
+
+RUN pip install flask[async] requests gunicorn pydantic asgiref
+
+ENV PORT=8080
+CMD ["gunicorn", "-b", "0.0.0.0:8080", "--timeout", "120", "telegram-gateway:app"]
