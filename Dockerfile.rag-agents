@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy app code
 COPY agent_api.py /app/agent_api.py
+COPY tool_server.py /app/tool_server.py
 # If you have more modules, copy them too, e.g.:
 # COPY . /app
 
@@ -31,6 +32,7 @@ RUN pip install --no-cache-dir \
 
 # Expose FastAPI port
 EXPOSE 8000
+# Port 9000 will be exposed at docker-compose level for tool_server
 
 # Start uvicorn with your FastAPI app
 # Change "agent_api:app" if your file/module name or app variable differ

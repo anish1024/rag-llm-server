@@ -63,6 +63,39 @@ services:
     profiles:
       - test
 
+  rag-tool-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.rag-agents
+    container_name: rag-tool-server
+    command: uvicorn tool_server:app --host 0.0.0.0 --port 9000
+    ports:
+      - "9000:9000"
+    environment:
+      - RAG_URL=http://rag-agents:8000/rag
+    depends_on:
+      - rag-agents
+    restart: unless-stopped
+
+  telegram-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.telegram-gateway
+    container_name: telegram-gateway
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: "8567730868:AAEqAoyoXFFXGJvUilDRGiJk9CJ1xC1BiZU"
+      WEBHOOK_SECRET: "anibot"
+      RAG_CHAT_URL: "http://rag-agents:8000/rag"
+      RAG_IMPORT_URL: "http://rag-tool-server:9000/import"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./ebooks:/data/uploads       # shared storage for docs/images
+    depends_on:
+      - rag-agents
+      - rag-tool-server
+
 volumes:
   ollama-data: {}     # ← Declared here!
   open-webui: {}      # ← Declared here!

@@ -1,0 +1,14 @@
+#!/bin/bash
+
+while true; do
+    sudo vcgencmd measure_temp
+    echo "Current CPU Temperature: `sudo vcgencmd measure_temp`"
+    
+    # Check for Ctrl+C and handle it gracefully
+    if [ $? -eq 2 ]; then
+        echo "Ctrl+C received. Stopping monitoring."
+        break
+    fi
+
+    sleep 5 # Adjust the interval as needed (e.g., 60 seconds)
+done
