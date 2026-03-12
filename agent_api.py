@@ -465,6 +465,50 @@ async def ingest_wiki(req: WikiIngestRequest = None):
     return WikiIngestResponse(pages=ingested_pages, chunks=total_chunks)
 
 
+#----------- Wiki.js webhook -------------------------------------------------
+
+def delete_wiki_page_chunks(client: QdrantClient, page_path: str) -> None:
+    """Remove all Qdrant points whose source matches the given wiki page path."""
+    try:
+        client.delete(
+            collection_name=QDRANT_COLLECTION,
+            points_selector=qm.FilterSelector(
+                filter=qm.Filter(
+                    must=[
+                        qm.FieldCondition(
+                            key="source",
+                            match=qm.MatchValue(value=page_path),
+                        )
+                    ]
+                )
+            ),
+        )
+    except Exception:
+        pass  # collection may not exist yet on first run
+
+
+class WikiWebhookPayload(BaseModel):
+    eventType: str   # "page:created" | "page:updated"
+    page: dict       # contains "id", "path", "title"
+
+
+@app.post("/webhook/wiki")
+async def wiki_webhook(payload: WikiWebhookPayload):
+    page_id = payload.page.get("id")
+    page_path = payload.page.get("path", "")
+
+    if not page_id or payload.eventType not in ("page:updated", "page:created"):
+        return {"skipped": True, "event": payload.eventType}
+
+    # Delete stale chunks for this page before re-ingesting
+    client = get_qdrant_client()
+    delete_wiki_page_chunks(client, page_path)
+
+    # Re-ingest only the changed page
+    result = await ingest_wiki(WikiIngestRequest(page_ids=[int(page_id)]))
+    return {"event": payload.eventType, "page_id": page_id, **result.dict()}
+
+
 #--------- Entry Point ------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
