@@ -2,6 +2,7 @@ import requests
 import os
 import io
 import uuid
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException
@@ -132,6 +133,7 @@ query {
       id
       path
       title
+      updatedAt
     }
   }
 }
@@ -379,6 +381,7 @@ async def rag_query(req: QueryRequest):
 class WikiIngestRequest(BaseModel):
     path_prefix: Optional[str] = None   # e.g. "/iot" to limit scope
     page_ids: Optional[List[int]] = None  # explicit list of page IDs
+    since_minutes: Optional[int] = None  # only pages updated in last N minutes
 
 
 class WikiIngestResponse(BaseModel):
@@ -399,6 +402,16 @@ async def ingest_wiki(req: WikiIngestRequest = None):
         if req.path_prefix:
             prefix = req.path_prefix.lstrip("/")
             page_list = [p for p in page_list if p["path"].lstrip("/").startswith(prefix)]
+        if req.since_minutes:
+            cutoff = datetime.now(timezone.utc) - timedelta(minutes=req.since_minutes)
+            def _updated_after(page: dict) -> bool:
+                raw = page.get("updatedAt") or ""
+                try:
+                    ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                    return ts >= cutoff
+                except ValueError:
+                    return True  # include page if timestamp can't be parsed
+            page_list = [p for p in page_list if _updated_after(p)]
 
     if not page_list:
         raise HTTPException(status_code=404, detail="No Wiki.js pages matched the filter")
