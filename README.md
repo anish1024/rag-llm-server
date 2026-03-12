@@ -311,16 +311,29 @@ curl -X POST http://localhost:8000/webhook/wiki \
   -d '{"eventType": "page:updated", "page": {"id": 1, "path": "/iot/setup", "title": "IoT Setup"}}'
 ```
 
-#### 2. Scheduled Full Re-index (hourly cron)
+#### 2. Scheduled Incremental Sync (cron)
 
-The `wiki-sync` container in `docker-compose.yml` calls `/ingest/wiki` every hour as a safety net to catch any pages missed by webhooks.
+The `wiki-sync` container runs on a configurable interval and calls `/ingest/wiki` with `since_minutes` matching the interval — only pages changed since the last run are re-indexed.
 
+Default interval is 60 minutes. Override via `.env`:
+```env
+WIKI_SYNC_INTERVAL_MINUTES=30
+```
+
+Apply the change:
 ```bash
-# View sync logs
+docker compose up -d wiki-sync
+```
+
+View sync logs:
+```bash
 docker logs -f wiki-sync
 ```
 
-To change the interval, update the `sleep 3600` value (seconds) in `docker-compose.yml` and restart:
+Trigger a manual incremental sync for any window:
 ```bash
-docker compose up -d wiki-sync
+# Re-index pages updated in the last 24 hours
+curl -X POST http://localhost:8000/ingest/wiki \
+  -H "Content-Type: application/json" \
+  -d '{"since_minutes": 1440}'
 ```
