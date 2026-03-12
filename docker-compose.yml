@@ -101,14 +101,18 @@ services:
   wiki-sync:
     image: curlimages/curl:latest
     container_name: wiki-sync
+    environment:
+      - WIKI_SYNC_INTERVAL_MINUTES=${WIKI_SYNC_INTERVAL_MINUTES:-60}
     entrypoint: >
-      sh -c "while true; do
-        echo '[wiki-sync] ingesting pages updated in last 60 minutes...';
-        curl -sf -X POST http://rag-agents:8000/ingest/wiki
-          -H 'Content-Type: application/json'
-          -d '{\"since_minutes\": 60}' || echo '[wiki-sync] ingest failed';
-        sleep 3600;
-      done"
+      sh -c "INTERVAL=$${WIKI_SYNC_INTERVAL_MINUTES:-60};
+        SLEEP=$$((INTERVAL * 60));
+        while true; do
+          echo \"[wiki-sync] ingesting pages updated in last $${INTERVAL} minutes...\";
+          curl -sf -X POST http://rag-agents:8000/ingest/wiki
+            -H 'Content-Type: application/json'
+            -d \"{\\\"since_minutes\\\": $${INTERVAL}}\" || echo '[wiki-sync] ingest failed';
+          sleep $$SLEEP;
+        done"
     depends_on:
       - rag-agents
     restart: unless-stopped
