@@ -285,3 +285,55 @@ class Tools:
 5. The LLM will automatically call the RAG tool when the question is relevant to the knowledge base
 
 > **Note:** The `RAG_URL` defaults to `http://rag-agents:8000/rag` which resolves correctly within the Docker network. No changes needed unless you rename the service.
+
+---
+
+### Keep RAG in Sync with Wiki.js
+
+Two complementary mechanisms ensure Qdrant stays up to date:
+
+#### 1. Wiki.js Webhook (real-time)
+
+Triggers re-ingestion of a single page immediately on create/update.
+
+**Configure in Wiki.js:**
+- Go to **Administration → Webhooks → Add Webhook**
+- URL: `http://<pi-ip>:8000/webhook/wiki`
+- Events: `Page Created`, `Page Updated`
+- Content Type: `application/json`
+
+The `/webhook/wiki` endpoint deletes stale chunks for the changed page from Qdrant before re-ingesting, so no duplicates accumulate.
+
+**Test the webhook manually:**
+```bash
+curl -X POST http://localhost:8000/webhook/wiki \
+  -H "Content-Type: application/json" \
+  -d '{"eventType": "page:updated", "page": {"id": 1, "path": "/iot/setup", "title": "IoT Setup"}}'
+```
+
+#### 2. Scheduled Incremental Sync (cron)
+
+The `wiki-sync` container runs on a configurable interval and calls `/ingest/wiki` with `since_minutes` matching the interval — only pages changed since the last run are re-indexed.
+
+Default interval is 60 minutes. Override via `.env`:
+```env
+WIKI_SYNC_INTERVAL_MINUTES=30
+```
+
+Apply the change:
+```bash
+docker compose up -d wiki-sync
+```
+
+View sync logs:
+```bash
+docker logs -f wiki-sync
+```
+
+Trigger a manual incremental sync for any window:
+```bash
+# Re-index pages updated in the last 24 hours
+curl -X POST http://localhost:8000/ingest/wiki \
+  -H "Content-Type: application/json" \
+  -d '{"since_minutes": 1440}'
+```
