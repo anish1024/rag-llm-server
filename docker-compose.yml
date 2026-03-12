@@ -30,6 +30,8 @@ services:
       - EMBEDDING_MODEL=nomic-embed-text
       - QDRANT_URL=http://qdrant:6333
       - QDRANT_COLLECTION=rag_docs
+      - WIKIJS_URL=${WIKIJS_URL:-}
+      - WIKIJS_API_KEY=${WIKIJS_API_KEY:-}
     depends_on:
       - ollama
       - qdrant
