@@ -98,6 +98,19 @@ services:
       - rag-agents
       - rag-tool-server
 
+  wiki-sync:
+    image: curlimages/curl:latest
+    container_name: wiki-sync
+    entrypoint: >
+      sh -c "while true; do
+        echo '[wiki-sync] triggering full re-index...';
+        curl -sf -X POST http://rag-agents:8000/ingest/wiki || echo '[wiki-sync] ingest failed';
+        sleep 3600;
+      done"
+    depends_on:
+      - rag-agents
+    restart: unless-stopped
+
 volumes:
   ollama-data: {}     # ← Declared here!
   open-webui: {}      # ← Declared here!
