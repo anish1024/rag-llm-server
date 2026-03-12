@@ -228,3 +228,60 @@ echo "   RAG API:   http://localhost:8000"
 echo "   Open WebUI: http://localhost:3000"
 echo "   Qdrant:    http://localhost:6333"
 ```
+
+---
+
+## Post Deployment Steps
+
+### Connect RAG to Open WebUI (Native Tool)
+
+Open WebUI's external tool server feature requires client-side URL resolution, which doesn't work with Docker service names. Instead, register the RAG pipeline as a **native Open WebUI Tool** — it runs server-side inside the Open WebUI container and can reach other containers by Docker service name.
+
+**Steps:**
+
+1. Open Open WebUI at `http://<pi-ip>:3000`
+2. Go to **Workspace → Tools → +** (create new tool)
+3. Paste the following Python script and save:
+
+```python
+"""
+title: Pi5 RAG Query
+description: Query the Pi5 RAG pipeline backed by Qdrant + Ollama
+author: pi5
+version: 1.0.0
+"""
+
+import requests
+from pydantic import BaseModel
+
+class Tools:
+    class Valves(BaseModel):
+        RAG_URL: str = "http://rag-agents:8000/rag"
+
+    def __init__(self):
+        self.valves = self.Valves()
+
+    def query_rag(self, question: str) -> str:
+        """
+        Query the local RAG knowledge base with a question.
+        Use this when the user asks about anything in the knowledge base,
+        wiki pages, or uploaded documents.
+        :param question: The question to answer using the RAG knowledge base.
+        :return: Answer from the RAG pipeline.
+        """
+        try:
+            r = requests.post(
+                self.valves.RAG_URL,
+                json={"question": question},
+                timeout=120,
+            )
+            r.raise_for_status()
+            return r.json().get("answer", "No answer returned.")
+        except Exception as e:
+            return f"[RAG error] {e}"
+```
+
+4. In a chat session, click the **Tools** icon in the message bar and enable **Pi5 RAG Query**
+5. The LLM will automatically call the RAG tool when the question is relevant to the knowledge base
+
+> **Note:** The `RAG_URL` defaults to `http://rag-agents:8000/rag` which resolves correctly within the Docker network. No changes needed unless you rename the service.
