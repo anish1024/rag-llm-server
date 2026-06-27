@@ -134,6 +134,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - NODE_ENV=production
+      # --- DIRECT ENVIRONMENT OVERRIDES ---
+      - OPENCLAW_GATEWAY_MODE=local
+      - OPENCLAW_ALLOW_UNCONFIGURED=true
     deploy:
       resources:
         limits:
