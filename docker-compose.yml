@@ -135,8 +135,8 @@ services:
     environment:
       - NODE_ENV=production
       # --- DIRECT ENVIRONMENT OVERRIDES ---
-      - OPENCLAW_GATEWAY_MODE=local
-      - OPENCLAW_ALLOW_UNCONFIGURED=true
+      - openclaw_gateway_mode=local
+      - openclaw_gateway_allowUnconfigured=true
     deploy:
       resources:
         limits:
