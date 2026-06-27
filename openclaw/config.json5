@@ -1,4 +1,8 @@
 {
+  // ADD THIS BLOCK AT THE TOP LEVEL
+  gateway: {
+    mode: "local"
+  },
   models: {
     default: "qwen3.5-9b",
     providers: {
