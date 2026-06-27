@@ -10,7 +10,7 @@ app = Flask(__name__)
 ##### Water Dispenser Section 
 
 TELEGRAM_TOKEN = "8488173380:AAFh31bZqPyJHo0Z7ut_-8is16byLrw8vx0" #  os.getenv("TELEGRAM_BOT_TOKEN")  # Set in .env
-TELEGRAM_CHAT_ID = "8359564001" # os.getenv("TELEGRAM_CHAT_ID")  # Your chat/group ID
+TELEGRAM_CHAT_ID = "8359564001" # os.getenv("TELEGRAM_CHAT_ID")  # Your telegram user ID
 
 class TelegramMsg(BaseModel):
     message: str
