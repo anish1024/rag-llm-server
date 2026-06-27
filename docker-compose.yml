@@ -119,7 +119,7 @@ services:
 
   # --- NEW OPENCLAW DEPLOYMENT BLOCK ---
   openclaw-gateway:
-    image: openclaw/gateway:latest
+    image: ghcr.io/openclaw/openclaw:latest
     container_name: openclaw-pi5
     ports:
       - 18789:18789  # Exposes the local OpenClaw control management UI
