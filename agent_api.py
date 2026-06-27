@@ -2,6 +2,7 @@ import requests
 import os
 import io
 import uuid
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException
@@ -132,6 +133,7 @@ query {
       id
       path
       title
+      updatedAt
     }
   }
 }
@@ -379,6 +381,7 @@ async def rag_query(req: QueryRequest):
 class WikiIngestRequest(BaseModel):
     path_prefix: Optional[str] = None   # e.g. "/iot" to limit scope
     page_ids: Optional[List[int]] = None  # explicit list of page IDs
+    since_minutes: Optional[int] = None  # only pages updated in last N minutes
 
 
 class WikiIngestResponse(BaseModel):
@@ -399,6 +402,16 @@ async def ingest_wiki(req: WikiIngestRequest = None):
         if req.path_prefix:
             prefix = req.path_prefix.lstrip("/")
             page_list = [p for p in page_list if p["path"].lstrip("/").startswith(prefix)]
+        if req.since_minutes:
+            cutoff = datetime.now(timezone.utc) - timedelta(minutes=req.since_minutes)
+            def _updated_after(page: dict) -> bool:
+                raw = page.get("updatedAt") or ""
+                try:
+                    ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                    return ts >= cutoff
+                except ValueError:
+                    return True  # include page if timestamp can't be parsed
+            page_list = [p for p in page_list if _updated_after(p)]
 
     if not page_list:
         raise HTTPException(status_code=404, detail="No Wiki.js pages matched the filter")
@@ -463,6 +476,50 @@ async def ingest_wiki(req: WikiIngestRequest = None):
         raise HTTPException(status_code=422, detail="Pages found but no content could be extracted")
 
     return WikiIngestResponse(pages=ingested_pages, chunks=total_chunks)
+
+
+#----------- Wiki.js webhook -------------------------------------------------
+
+def delete_wiki_page_chunks(client: QdrantClient, page_path: str) -> None:
+    """Remove all Qdrant points whose source matches the given wiki page path."""
+    try:
+        client.delete(
+            collection_name=QDRANT_COLLECTION,
+            points_selector=qm.FilterSelector(
+                filter=qm.Filter(
+                    must=[
+                        qm.FieldCondition(
+                            key="source",
+                            match=qm.MatchValue(value=page_path),
+                        )
+                    ]
+                )
+            ),
+        )
+    except Exception:
+        pass  # collection may not exist yet on first run
+
+
+class WikiWebhookPayload(BaseModel):
+    eventType: str   # "page:created" | "page:updated"
+    page: dict       # contains "id", "path", "title"
+
+
+@app.post("/webhook/wiki")
+async def wiki_webhook(payload: WikiWebhookPayload):
+    page_id = payload.page.get("id")
+    page_path = payload.page.get("path", "")
+
+    if not page_id or payload.eventType not in ("page:updated", "page:created"):
+        return {"skipped": True, "event": payload.eventType}
+
+    # Delete stale chunks for this page before re-ingesting
+    client = get_qdrant_client()
+    delete_wiki_page_chunks(client, page_path)
+
+    # Re-ingest only the changed page
+    result = await ingest_wiki(WikiIngestRequest(page_ids=[int(page_id)]))
+    return {"event": payload.eventType, "page_id": page_id, **result.dict()}
 
 
 #--------- Entry Point ------------------------------------------------------
