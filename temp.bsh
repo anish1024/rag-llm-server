@@ -1,0 +1,35 @@
+sudo tee /home/ssd/openclaw/openclaw.json5 << 'EOF'
+{
+  gateway: {
+    mode: "local",
+    allowUnconfigured: true
+  },
+  models: {
+    default: "qwen3.5-9b",
+    providers: {
+      openai: {
+        // Swap this with your Mac Mini's actual IP address
+        baseURL: "http://192.168.1.23:1234/v1", 
+        apiKey: "mlx-local", 
+        models: ["mlx-community/Qwen3.5-9B-Instruct-4bit"]
+      }
+    }
+  },
+  channels: {
+    telegram: {
+      enabled: true,
+      // Swap this with your actual HTTP bot token from @BotFather
+      botToken: "YOUR_TELEGRAM_BOT_TOKEN_HERE",
+      dmPolicy: "pairing", 
+      groups: {
+        "*": { requireMention: true }
+      }
+    }
+  },
+  permissions: {
+    "@openclaw/shell": {
+      allowedCommands: ["git", "npm test", "pytest", "python3", "make"]
+    }
+  }
+}
+EOF

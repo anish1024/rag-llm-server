@@ -126,7 +126,7 @@ services:
     volumes:
       # Persistent tracking for configs, secrets, paired tokens, and playbooks
       - /home/ssd/openclaw:/root/.openclaw
-      
+      - /home/ssd/openclaw:/app/.openclaw
       # Exposes your project repositories to the agent shell framework
       - /home/ssd/projects:/home/pi/projects
       
