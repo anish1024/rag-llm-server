@@ -183,15 +183,33 @@ def test_ollama():
     except Exception as e:
         return {"error": str(e)}
 
+localLM = 'remote' # 'local' for pi5, 'remote' for macmini & 'cloud' for subscription
+
 @app.post("/chat")
 def chat(req: ChatRequest):
     try:
-        r = requests.post(f"{OLLAMA_URL}/api/chat", json={
-            "model": "qwen2.5:3b-instruct-q4_K_M",
-            "messages": req.messages,
-            "stream": False,
-	    "options": {"num_predict": 256}
-        }, timeout=120)
+        if localLM == 'remote':
+            # Prepend a strict system instruction to suppress the verbose chain-of-thought text
+            reasoning_blocker = {
+                "role": "system",
+                "content": "You are a precise coding assistant. Do not output any internal reasoning, thoughts, or step-by-step thinking processes. Respond with the final answer directly."
+            }
+            # Combine the instruction with incoming request arrays
+            modified_messages = [reasoning_blocker] + req.messages
+            # Updated to match the exact curl endpoint, headers, and payload structure
+            r = requests.post(
+                "http://192.168.1.23:1234/v1/chat/completions", 
+                headers={"Content-Type": "application/json"},
+                json={"model": "mlx-community/Qwen3.5-9B-MLX-4bit", "messages": modified_messages, "stream": False},
+                timeout=120
+            )
+        else:
+            r = requests.post(f"{OLLAMA_URL}/api/chat", json={
+                "model": "qwen2.5:3b-instruct-q4_K_M",
+                "messages": req.messages,
+                "stream": False,
+                "options": {"num_predict": 256}
+            }, timeout=120)
         return r.json()
     except Exception as e:
         return {"error": str(e)}
