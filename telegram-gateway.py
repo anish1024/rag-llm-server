@@ -153,7 +153,20 @@ def telegram_webhook():
             # answer = rag_resp.json().get("answer", "Sorry, I couldn't generate a reply.")
             answer = rag_resp.json()
             print(f"[telegram_gateway] !! LLM response !! <= '{answer}'", flush=True)
-            answer = answer.get("message", {}).get("content", "Sorry, I had an error.")
+            # 1. First, check if the structure has a "choices" list (New Remote Qwen API format)
+            choices = answer.get("choices")
+            if choices and isinstance(choices, list) and len(choices) > 0:
+                # Safely dive into choices[0] -> "message" -> "content"
+                content = choices[0].get("message", {}).get("content")
+                print(f"[telegram_gateway] !! LLM choice !! <= '{content}'", flush=True)
+            else:
+                # 2. Fallback to the previous direct structure (Ollama API format)
+                content = answer.get("message", {}).get("content")
+                print(f"[telegram_gateway] !! LLM fallback !! <= '{content}'", flush=True)
+            if content is not None:
+                content = content.strip()
+            # 3. Assign final value, defaulting to an error string if neither matched
+            answer = content if content is not None else "Sorry, I had an error."
         except Exception as e:
             answer = f"Backend error talking to the RAG agent.: {e}"
         send_message(chat_id, answer)
